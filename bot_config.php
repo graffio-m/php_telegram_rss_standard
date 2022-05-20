@@ -18,10 +18,7 @@ $log_file = 'channel_bot.log';
 /* File in cui salvare il PID */
 $pid_file = 'bot.pid';
 
-/* Attesa tra un ciclo e l'altro */
-$attesa = 60;
-
-/* Ritarda la pubblicazione delle notizie, in secondi. 0 per disattivare */
+/*interval to send*/
 $ritardo = 300;
 
 ?>
