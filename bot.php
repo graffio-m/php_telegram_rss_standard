@@ -1,36 +1,36 @@
 <?php 
 /* 
 **********************************
-* Bot Telegram - Invio Messaggi **
+* Bot Telegram**
 **********************************
 */
 require_once('bot_config.php');
-/* Variabili statiche. Attenzione: Modificare solo le variabili in bot_config.php */
-$max_age_articoli = time() - 1200;
-/* Definisco a FALSE la data di ultimo avvio. Al primo avvio, considera il parametro max_age_articoli */
+/* Static variables. Warning: Only change the variables in bot_config.php */
+$max_age_article = time() - 1200;
+/* I set the last start date to FALSE. At first startup, consider the max_age_articles parameter */
 $last_send = false;
 $last_send_title = "";
 $dir = dirname(__FILE__);
 
-/* Salvo nei log che il bot è stato avviato */
+/* logs that the bot was started */
 $time = date("m-d-y H:i", time());
-$log_text = "[$time] Bot avviato. URL Feed: $rss".PHP_EOL;
+$log_text = "[$time] Bot started. URL Feed: $rss".PHP_EOL;
 file_put_contents($dir."/".$log_file, $log_text, FILE_APPEND | LOCK_EX);
 echo $log_text;
-/* Salvo il PID attuale in un file, cosi che il watchdogs possa controllarlo */
+/* save PID for possible check in the future */
 $pid = getmypid();
 file_put_contents($dir."/".$pid_file, $pid);
 
-/* Funzione invio messaggi alla chat telegram */
-function telegram_send_chat_message($token, $chat, $messaggio) {
-	/* prelievo timestamp attuale per eventuale log dell'errore */
+/* Function for sending messages to the telegram chat */
+function telegram_send_chat_message($token, $chat, $message) {
+	/* current timestamp retrieval for any error log */
 	$time = time();
-	/* Inizializzo variabile URL */
+	/* URL variable initialization */
 	$url = "https://api.telegram.org/bot$token/sendMessage?chat_id=$chat";
-	/* Imposto variabile URL con il messaggio da inviare */
-	$send_text=urlencode($messaggio);
+	/* Imposto variabile URL con il message da inviare */
+	$send_text=urlencode($message);
 	$url = $url ."&text=$send_text";
-	//inizio sessione curl 
+	//start session curl 
 	$ch = curl_init();
 	$optArray = array(
 		CURLOPT_URL => $url,
@@ -38,51 +38,47 @@ function telegram_send_chat_message($token, $chat, $messaggio) {
 	);
 	curl_setopt_array($ch, $optArray);
 	$result = curl_exec($ch);
-	/* In caso di errore, lo salvo nei log */
+	/* In case of an error, I save it in the logs */
 	if ($result == FALSE) {
 		$time = date("m-d-y H:i", time());
-		$log_text = "[$time] Invio messaggio fallito: $messaggio".PHP_EOL;
+		$log_text = "[$time] Sending message failed: $message".PHP_EOL;
 		file_put_contents($dir."/".$log_file, $log_text, FILE_APPEND | LOCK_EX);
 	}
 	curl_close($ch);
 }
+/* If $ last_send has not been parameterized, it means that the bot has just started. So I set it equal to $ max_age_article, which is the current time - 20 minutes. It will then retroactively post all news older than 20 minutes*/
+if ($last_send == false) $last_send = $max_age_article;
+$current_time = time();
+$article = @simplexml_load_file($rss);
+/*If it failed to download the feed, I post an error message in the log*/
+if ($article === false) { 
+	$time = date("m-d-y H:i", $current_time);
+	$log_text = "[$time] The bot was unable to contact the RSS Feed. Connection failed $rss.".PHP_EOL;
+	file_put_contents($dir."/".$log_file, $log_text, FILE_APPEND | LOCK_EX);
+/* I go ahead only if $ article is not in false, this means that simplexml was able to load the feed and I can proceed to process the news */	
+}else{
+	/* I reverse the order of the news, from descending to ascending */
+	$xmlArray = array();
+	foreach ($article->channel->item as $item) $xmlArray[] = $item;
+	$xmlArray = array_reverse($xmlArray);
 
-/* Inizio del ciclo del bot */
-while (true) {
-	/* Se $last_send non è stata parametizzata, significa che il bot è appena partito. La imposto quindi uguale a $max_age_articoli, che è il tempo attuale - 20 minuti. Pubblicherà quindi retroattivamente tutte le notizie più vecchie di 20 minuti*/
-	if ($last_send == false) $last_send = $max_age_articoli;
-	$ora_attuale = time();
-	$articoli = @simplexml_load_file($rss);
-	/* Se non è riuscito a scaricare il feed, pubblico un messaggio di errore nel log */
-	if ($articoli === false) { 
-		$time = date("m-d-y H:i", $ora_attuale);
-		$log_text = "[$time] Il bot non è riuscito a contattare il Feed RSS. Connessione fallita a $rss.".PHP_EOL;
-		file_put_contents($dir."/".$log_file, $log_text, FILE_APPEND | LOCK_EX);
-	/* Vado avanti solo se $articoli non è in false, ciò vuol dire che simplexml è riuscito a caricare il feed e posso procedere a processare le notizie */	
-	}else{
-		/* Inverto l'ordine delle notizie, da decrescente a crescente */
-		$xmlArray = array();
-		foreach ($articoli->channel->item as $item) $xmlArray[] = $item;
-		$xmlArray = array_reverse($xmlArray);
-		
-		/* Inizio ciclo invio notizie */
-		foreach ($xmlArray as $item) {
-			/* Estraggo il timestamp dell'articolo */
-			$timestamp_articolo = strtotime($item->pubDate);
-			/* Calcolo la differenza tra il timestamp attuale e quello dell'articolo */
-			$diff_timestamp = time() - $timestamp_articolo;
-			/* Controllo se la notizia è più recente dell'ultima pubblicata */
-			/* Anche se dovrebbe *non farlo* ma lo fa per ignoti motivi, ho aggiunto un controllo che dovrebbe evitare di far pubblicare due volte la stessa notizia */
-			/* Non pubblico gli articoli con meno di 5 minuti (300 secondi) di anzianità */
-			if ($timestamp_articolo > $last_send AND $diff_timestamp > $ritardo AND $last_send_title != $item->title) {
-				$messaggio = ucfirst($item->category) . " - " . $item->title . PHP_EOL;
-				$messaggio .= $item->link . PHP_EOL;
-				telegram_send_chat_message($token, $chat, $messaggio);
-				$last_send = $timestamp_articolo;
-				$last_send_title = $item->title;
-			}
+	/* sending news */
+	foreach ($xmlArray as $item) {
+		/* I extract the timestamp of the article */
+		$timestamp_article = strtotime($item->pubDate);
+		/* I calculate the difference between the current timestamp and that of the article */
+		$diff_timestamp = time() - $timestamp_article;
+		/* Check if the news is more recent than the last published */
+		/* Although it should * not * but it does for unknown reasons, I have added a control that should avoid having the same story published twice */
+		/* I do not publish articles with less than 5 minutes (300 seconds) of seniority */
+		if ($timestamp_article > $last_send AND $diff_timestamp > $ritardo AND $last_send_title != $item->title) {
+			$message = ucfirst($item->category) . " - " . $item->title . PHP_EOL;
+			$message .= $item->link . PHP_EOL;
+			telegram_send_chat_message($token, $chat , $message);
+			$last_send = $timestamp_article;
+			$last_send_title = $item->title;
 		}
 	}
-	sleep($attesa);
 }
 ?>
+
