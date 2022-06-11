@@ -5,8 +5,7 @@
 **********************************
 */
 require_once('bot_config.php');
-/* Static variables. Warning: Only change the variables in bot_config.php */
-$max_age_article = time() - 1200;
+
 /* I set the last start date to FALSE. At first startup, consider the max_age_articles parameter */
 $last_send = false;
 $last_send_title = "";
@@ -21,8 +20,22 @@ echo $log_text;
 $pid = getmypid();
 file_put_contents($dir."/".$pid_file, $pid);
 
+/* Read already sended URL */
+$already_sended = array();
+if (file_exists($db_sended_message)) {
+	$already_sended = file($db_sended_message);
+	array_walk($already_sended, 'trim_value');
+}
+
+/* Function to remove PHP_EOL from array element*/
+function trim_value(&$value) 
+{ 
+    $value = trim($value); 
+}
+
+
 /* Function for sending messages to the telegram chat */
-function telegram_send_chat_message($token, $chat, $message) {
+function telegram_send_chat_message($token, $chat, $message, $dir, $log_file, $db_sended_message, $link) {
 	/* current timestamp retrieval for any error log */
 	$time = time();
 	/* URL variable initialization */
@@ -38,11 +51,15 @@ function telegram_send_chat_message($token, $chat, $message) {
 	);
 	curl_setopt_array($ch, $optArray);
 	$result = curl_exec($ch);
+
 	/* In case of an error, I save it in the logs */
 	if ($result == FALSE) {
 		$time = date("m-d-y H:i", time());
 		$log_text = "[$time] Sending message failed: $message".PHP_EOL;
 		file_put_contents($dir."/".$log_file, $log_text, FILE_APPEND | LOCK_EX);
+	} else {
+		$log_text = $link.PHP_EOL;
+		file_put_contents($dir."/".$db_sended_message, $log_text, FILE_APPEND | LOCK_EX);
 	}
 	curl_close($ch);
 }
@@ -67,14 +84,18 @@ if ($article === false) {
 		/* I extract the timestamp of the article */
 		$timestamp_article = strtotime($item->pubDate);
 		/* I calculate the difference between the current timestamp and that of the article */
+		$ora_attuale = time();
 		$diff_timestamp = time() - $timestamp_article;
 		/* Check if the news is more recent than the last published */
 		/* Although it should * not * but it does for unknown reasons, I have added a control that should avoid having the same story published twice */
 		/* I do not publish articles with less than 5 minutes (300 seconds) of seniority */
-		if ($timestamp_article > $last_send AND $diff_timestamp > $ritardo AND $last_send_title != $item->title) {
+		/* I do not publish articles already published */
+		if ($timestamp_article > $last_send AND $last_send_title != $item->title AND (in_array($item->link,$already_sended) != true)) {
+//		if ($timestamp_article > $last_send AND $diff_timestamp > $ritardo AND $last_send_title != $item->title AND (in_array($item->link,$already_sended) != true)) {
+//		if ($timestamp_article > $last_send AND $diff_timestamp > $ritardo) {
 			$message = ucfirst($item->category) . " - " . $item->title . PHP_EOL;
 			$message .= $item->link . PHP_EOL;
-			telegram_send_chat_message($token, $chat , $message);
+			telegram_send_chat_message($token, $chat , $message, $dir, $log_file, $db_sended_message, $item->link);
 			$last_send = $timestamp_article;
 			$last_send_title = $item->title;
 		}
