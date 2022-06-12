@@ -12,6 +12,7 @@ Edit "*bot_config.php*" file with your favorite editor, this file contain all th
 * *$log_file* is the name of the log file
 * *$pid_file* is the file where the bot write the pid process, can be used for multiple purpose.
 * *$attesa* is the ammount of sleep time between requests
+* *$db_sended_message is the file contains the url sended 
 
 # How to use
 
